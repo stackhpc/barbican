@@ -663,15 +663,26 @@ class WhenTestingSecretResource(BaseTestCase):
                                content_type="application/octet-stream")
 
     def test_should_pass_delete_secret(self):
-        self._assert_pass_rbac(['admin'], self._invoke_on_delete,
+        self._assert_pass_rbac(['admin', 'creator'], self._invoke_on_delete,
                                user_id=self.user_id,
                                project_id=self.external_project_id)
 
     def test_should_raise_delete_secret(self):
-        """A non-admin user cannot delete other user's secret.
+        """Only admin and creator can delete secrets
 
         User id is different from initial user who has created the secret.
         """
+        self._assert_fail_rbac([None, 'audit', 'observer', 'bogus'],
+                               self._invoke_on_delete,
+                               user_id=self.user_id,
+                               project_id=self.external_project_id)
+
+    def test_should_raise_delete_private_secret(self):
+        self.acl_list.pop()  # remove read acl from default setup
+        acl_read = models.SecretACL(secret_id=self.secret_id, operation='read',
+                                    project_access=False,
+                                    user_ids=['anyRandomUserX', 'aclUser1'])
+        self.acl_list.append(acl_read)
         self._assert_fail_rbac([None, 'audit', 'observer', 'creator', 'bogus'],
                                self._invoke_on_delete,
                                user_id=self.user_id,
@@ -1059,10 +1070,12 @@ class WhenTestingConsumersResource(BaseTestCase):
 
         self.external_project_id = '12345project'
         self.container_id = '12345container'
+        self.creator_user_id = '123456CreatorUser'
 
         # Force an error on GET calls that pass RBAC, as we are not testing
         #   such flows in this test module.
         self.consumer_repo = mock.MagicMock()
+        self.container_repo = mock.MagicMock()
         get_by_container_id = mock.MagicMock(return_value=None,
                                              side_effect=self
                                              ._generate_get_error())
@@ -1072,23 +1085,34 @@ class WhenTestingConsumersResource(BaseTestCase):
         self.setup_container_consumer_repository_mock(self.consumer_repo)
         self.setup_container_repository_mock()
 
-        self.resource = ConsumersResource(container_id=self.container_id)
+        container = mock.MagicMock()
+        container.id = self.container_id
+        container.project.external_id = self.external_project_id
+        container.creator_id = self.creator_user_id
+        self.container_repo.get_container_by_id.return_value = container
+        self.setup_container_repository_mock(self.container_repo)
+
+        self.resource = ConsumersResource(container)
 
     def test_rules_should_be_loaded(self):
         self.assertIsNotNone(self.policy_enforcer.rules)
 
     def test_should_pass_create_consumer(self):
         self._assert_pass_rbac(['admin'], self._invoke_on_post,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id=self.external_project_id)
 
     def test_should_raise_create_consumer(self):
         self._assert_fail_rbac([None, 'audit', 'observer', 'creator', 'bogus'],
                                self._invoke_on_post,
-                               content_type='application/json')
+                               content_type='application/json',
+                               user_id='some_other_user',
+                               project_id='some_other_project')
 
     def test_should_pass_delete_consumer(self):
         self._assert_pass_rbac(['admin'], self._invoke_on_delete,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id=self.external_project_id)
 
     def test_should_raise_delete_consumer(self):
         self._assert_fail_rbac([None, 'audit', 'observer', 'creator', 'bogus'],
@@ -1097,7 +1121,8 @@ class WhenTestingConsumersResource(BaseTestCase):
     def test_should_pass_get_consumers(self):
         self._assert_pass_rbac(['admin', 'observer', 'creator', 'audit'],
                                self._invoke_on_get,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id=self.external_project_id)
 
     def test_should_raise_get_consumers(self):
         self._assert_fail_rbac([None, 'bogus'],
@@ -1121,17 +1146,28 @@ class WhenTestingConsumerResource(BaseTestCase):
 
         self.external_project_id = '12345project'
         self.consumer_id = '12345consumer'
+        self.container_id = '12345container'
+        self.creator_user_id = '123456CreatorUser'
 
         # Force an error on GET calls that pass RBAC, as we are not testing
         #   such flows in this test module.
         self.consumer_repo = mock.MagicMock()
+        self.container_repo = mock.MagicMock()
         fail_method = mock.MagicMock(return_value=None,
                                      side_effect=self._generate_get_error())
         self.consumer_repo.get = fail_method
 
         self.setup_project_repository_mock()
         self.setup_container_consumer_repository_mock(self.consumer_repo)
-        self.resource = ConsumerResource(consumer_id=self.consumer_id)
+
+        container = mock.MagicMock()
+        container.id = self.container_id
+        container.project.external_id = self.external_project_id
+        container.creator_id = self.creator_user_id
+        self.container_repo.get_container_by_id.return_value = container
+        self.setup_container_repository_mock(self.container_repo)
+
+        self.resource = ConsumerResource(container, self.consumer_id)
 
     def test_rules_should_be_loaded(self):
         self.assertIsNotNone(self.policy_enforcer.rules)
@@ -1292,6 +1328,7 @@ class WhenTestingSecretConsumersResource(BaseTestCase):
 
         self.external_project_id = '12345project'
         self.secret_id = '12345secret'
+        self.creator_user_id = '123456CreatorUser'
 
         # Force an error on GET calls that pass RBAC, as we are not testing
         #   such flows in this test module.
@@ -1301,27 +1338,35 @@ class WhenTestingSecretConsumersResource(BaseTestCase):
                                           ._generate_get_error())
         self.consumer_repo.get_by_secret_id = get_by_secret_id
 
+        secret = mock.MagicMock()
+        secret.id = self.secret_id
+        secret.project.external_id = self.external_project_id
+        secret.creator_id = self.creator_user_id
+
         self.setup_project_repository_mock()
         self.setup_secret_consumer_repository_mock(self.consumer_repo)
         self.setup_secret_repository_mock()
 
-        self.resource = SecretConsumersResource(secret_id=self.secret_id)
+        self.resource = SecretConsumersResource(secret)
 
     def test_rules_should_be_loaded(self):
         self.assertIsNotNone(self.policy_enforcer.rules)
 
     def test_should_pass_create_consumer(self):
         self._assert_pass_rbac(['admin'], self._invoke_on_post,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id=self.external_project_id)
 
     def test_should_raise_create_consumer(self):
         self._assert_fail_rbac([None, 'audit', 'observer', 'creator', 'bogus'],
                                self._invoke_on_post,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id='some_other_id')
 
     def test_should_pass_delete_consumer(self):
         self._assert_pass_rbac(['admin'], self._invoke_on_delete,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id=self.external_project_id)
 
     def test_should_raise_delete_consumer(self):
         self._assert_fail_rbac([None, 'audit', 'observer', 'creator', 'bogus'],
@@ -1330,12 +1375,14 @@ class WhenTestingSecretConsumersResource(BaseTestCase):
     def test_should_pass_get_consumers(self):
         self._assert_pass_rbac(['admin', 'observer', 'creator', 'audit'],
                                self._invoke_on_get,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id=self.external_project_id)
 
     def test_should_raise_get_consumers(self):
         self._assert_fail_rbac([None, 'bogus'],
                                self._invoke_on_get,
-                               content_type='application/json')
+                               content_type='application/json',
+                               project_id='some_other_id')
 
     def _invoke_on_post(self):
         self.resource.on_post(self.req, self.resp)
@@ -1354,6 +1401,7 @@ class WhenTestingSecretConsumerResource(BaseTestCase):
 
         self.external_project_id = '12345project'
         self.consumer_id = '12345consumer'
+        self.creator_user_id = '123456CreatorUser'
 
         # Force an error on GET calls that pass RBAC, as we are not testing
         #   such flows in this test module.
@@ -1362,9 +1410,13 @@ class WhenTestingSecretConsumerResource(BaseTestCase):
                                      side_effect=self._generate_get_error())
         self.consumer_repo.get = fail_method
 
+        secret = mock.MagicMock()
+        secret.project.external_id = self.external_project_id
+        secret.creator_id = self.creator_user_id
+
         self.setup_project_repository_mock()
         self.setup_secret_consumer_repository_mock(self.consumer_repo)
-        self.resource = SecretConsumerResource(consumer_id=self.consumer_id)
+        self.resource = SecretConsumerResource(secret, self.consumer_id)
 
     def test_rules_should_be_loaded(self):
         self.assertIsNotNone(self.policy_enforcer.rules)
