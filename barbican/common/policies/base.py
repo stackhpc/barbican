@@ -13,7 +13,15 @@
 from oslo_policy import policy
 
 
+LEGACY_POLICY_DEPRECATION = (
+    'The default policy for the Key Manager API has been updated '
+    'to use scopes and default roles.'
+)
+
 rules = [
+    policy.RuleDefault(
+        name='system_admin',
+        check_str='role:amdin and system_scope:all'),
     policy.RuleDefault(
         name='admin',
         check_str='role:admin'),
@@ -76,8 +84,20 @@ rules = [
         check_str="rule:all_users and rule:container_project_match and not " +
                   "rule:container_private_read"),
     policy.RuleDefault(
+        name='secret_project_reader',
+        check_str='role:reader and rule:secret_project_match'),
+    policy.RuleDefault(
+        name='secret_project_member',
+        check_str='role:member and rule:secret_project_match'),
+    policy.RuleDefault(
         name='secret_project_admin',
-        check_str="rule:admin and rule:secret_project_match"),
+        check_str='rule:admin and rule:secret_project_match'),
+    policy.RuleDefault(
+        name='secret_owner',
+        check_str='user_id:%(target.secret.creator_id)s'),
+    policy.RuleDefault(
+        name='secret_is_not_private',
+        check_str='True:%(target.secret.read_project_access)s'),
     policy.RuleDefault(
         name='secret_project_creator',
         check_str="rule:creator and rule:secret_project_match and " +
@@ -86,8 +106,17 @@ rules = [
         name='secret_project_creator_role',
         check_str="rule:creator and rule:secret_project_match"),
     policy.RuleDefault(
+        name='container_project_member',
+        check_str='role:member and rule:container_project_match'),
+    policy.RuleDefault(
         name='container_project_admin',
-        check_str="rule:admin and rule:container_project_match"),
+        check_str='role:admin and rule:container_project_match'),
+    policy.RuleDefault(
+        name='container_owner',
+        check_str="user_id:%(target.container.creator_id)s"),
+    policy.RuleDefault(
+        name='container_is_not_private',
+        check_str='True:%(target.container.read_project_access)s'),
     policy.RuleDefault(
         name='container_project_creator',
         check_str="rule:creator and rule:container_project_match and " +
@@ -95,6 +124,12 @@ rules = [
     policy.RuleDefault(
         name='container_project_creator_role',
         check_str="rule:creator and rule:container_project_match"),
+    policy.RuleDefault(
+        name='order_project_match',
+        check_str='project_id:%(target.order.project_id)s'),
+    policy.RuleDefault(
+        name='order_project_member',
+        check_str='role:member and rule:order_project_match'),
 ]
 
 
